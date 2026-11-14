@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+/* Muted rose palette. Text colours checked for WCAG AA (>= 4.5:1) on surface. */
+@theme {
+  --font-sans: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; /* rounded system font on iOS/macOS, normal elsewhere */
+  --color-page: #faf3f1;
+  --color-dot: #e8d3d6;
+  --color-surface: #fffcfb;
+  --color-ink: #3f2a30;
+  --color-muted: #7d6469;
+  --color-line: #efdde0;
+  --color-accent: #a8566a;
+  --color-soft: #f6e4e7;
+  --color-der: #4a6fa8;
+  --color-die: #b4475a;
+  --color-das: #4d7f58;
+  --color-again: #b4475a;
+  --color-hard: #9a6a2e;
+  --color-good: #4d7f58;
+  --color-easy: #4a6fa8;
+  --color-right: #e4f1e6;
+  --color-wrong: #f9e2e6;
+  --shadow-soft: 0 2px 10px rgb(168 86 106 / 0.12);
+}
+
+@layer base {
+  :root { color-scheme: light; }
+  body {
+    -webkit-tap-highlight-color: transparent;
+    /* dotted graph paper */
+    background-image: radial-gradient(var(--color-dot) 1.2px, transparent 1.6px);
+    background-size: 20px 20px;
+  }
+  :focus-visible { @apply outline-3 outline-offset-2 outline-accent; }
+}
