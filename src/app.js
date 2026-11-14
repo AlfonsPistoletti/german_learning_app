@@ -61,7 +61,9 @@ function say(text) {
   if (!deVoice) loadVoice(); // iOS may fill the voice list late and skip voiceschanged
   const u = new SpeechSynthesisUtterance(text.replace(/[()]/g, ''));
   u.lang = 'de-DE'; u.rate = 0.9; if (deVoice) u.voice = deVoice;
-  speechSynthesis.cancel(); speechSynthesis.speak(u);
+  // cancel() restarts the iOS speech engine (audible click), so only call it to cut off running speech.
+  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+  speechSynthesis.speak(u);
 }
 const speakBtn = text => 'speechSynthesis' in window
   ? h('button', { className: 'inline-flex items-center justify-center align-middle min-w-11 min-h-11 ml-1.5 cursor-pointer',
