@@ -2,9 +2,10 @@ import './style.css';
 import { createIcons, createElement, Layers, PencilLine, ChartLine, Volume2, ChevronLeft } from 'lucide';
 import { DECKS, VERBS, PERSONS } from './data/a1.js';
 import { INTRO, FORMS, SPEAK } from './data/exam.js';
-import { listeningTask } from './data/hoeren.js';
+import { POOL } from './data/hoeren.js';
+import { verbSay, officialTime } from './spoken.js';
 import { review, fmtDelay, DAY } from './srs.js';
-import { checkAnswer, missingCap, variants, clockPhrase, timeAnswers, timeFormat, tokens } from './answer.js';
+import { checkAnswer, missingCap, variants, clockPhrase, timeAnswers, timeFormat, tokens, ttsText, clipId } from './answer.js';
 
 createIcons({ icons: { Layers, PencilLine, ChartLine } }); // nav icons: <i data-lucide="..."> in index.html
 
@@ -74,20 +75,34 @@ const loadVoice = () => {
   deVoice = de.sort((a, b) => voiceRank(a) - voiceRank(b) || b.lang.endsWith('DE') - a.lang.endsWith('DE'))[0];
 };
 if ('speechSynthesis' in window) { loadVoice(); speechSynthesis.onvoiceschanged = loadVoice; }
-function say(text) {
-  if (!text || !('speechSynthesis' in window)) return;
-  if (!deVoice) loadVoice(); // iOS may fill the voice list late and skip voiceschanged
-  const u = new SpeechSynthesisUtterance(text.replace(/[()]/g, ''));
-  u.lang = 'de-DE'; u.rate = 0.9; if (deVoice) u.voice = deVoice;
+// Pre-generated neural voice clips (tools/make-audio.mjs); texts without a clip use the device voice.
+let CLIPS = new Set(), playing;
+fetch('audio/index.json').then(r => r.ok ? r.json() : []).then(ids => { CLIPS = new Set(ids); }).catch(() => {});
+function stopAudio() {
+  playing?.pause();
   // cancel() restarts the iOS speech engine (audible click), so only call it to cut off running speech.
-  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+  if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
+}
+function say(text) {
+  if (!text) return;
+  stopAudio();
+  const id = clipId(text);
+  if (CLIPS.has(id)) {
+    playing = new Audio(`audio/${id}.mp3`);
+    playing.play().catch(() => deviceSay(text)); // e.g. offline and clip not cached yet
+    return;
+  }
+  deviceSay(text);
+}
+function deviceSay(text) {
+  if (!('speechSynthesis' in window)) return;
+  if (!deVoice) loadVoice(); // iOS may fill the voice list late and skip voiceschanged
+  const u = new SpeechSynthesisUtterance(ttsText(text));
+  u.lang = 'de-DE'; u.rate = 0.9; if (deVoice) u.voice = deVoice;
   speechSynthesis.speak(u);
 }
-const speakBtn = text => 'speechSynthesis' in window
-  ? h('button', { className: 'inline-flex items-center justify-center align-middle min-w-11 min-h-11 ml-1.5 cursor-pointer',
-      ariaLabel: 'Listen', onclick: () => say(text) },
-      createElement(Volume2, { 'aria-hidden': 'true' }))
-  : null;
+const speakBtn = text => h('button', { className: 'inline-flex items-center justify-center align-middle min-w-11 min-h-11 ml-1.5 cursor-pointer',
+  ariaLabel: 'Listen', onclick: () => say(text) }, createElement(Volume2, { 'aria-hidden': 'true' }));
 const bigSpeakBtn = text => h('button', { className: 'inline-flex items-center justify-center size-20 rounded-full bg-soft text-accent cursor-pointer',
   ariaLabel: 'Play again', onclick: () => say(text) }, createElement(Volume2, { 'aria-hidden': 'true', width: 40, height: 40 }));
 
@@ -265,7 +280,7 @@ const EXERCISES = {
     const p = rnd(6);
     const opts = shuffle([...new Set(forms)].filter(f => f !== forms[p])).slice(0, 3);
     return { kind: 'choice', prompt: [`${PERSONS[p]} ___`], hint: `${inf} (${en})`,
-      options: shuffle([forms[p], ...opts]), answer: forms[p], speak: `${PERSONS[p].split('/')[0]} ${forms[p]}` };
+      options: shuffle([forms[p], ...opts]), answer: forms[p], speak: verbSay(p, forms[p]) };
   })},
 
   hear: { title: 'Listen: which word?', round: ten(() => meaningQ(pick(seenPool(), 1)[0], true)) },
@@ -281,11 +296,11 @@ const EXERCISES = {
       return { ...listenQ(clockPhrase(hr, m), timeAnswers(hr, m, true), 'Type the time, e.g. 14:30', 'numeric'), ...time };
     }
     const hr = rnd(24), m = 5 * rnd(12); // official: "14 Uhr 15"
-    return { ...listenQ(`${hr} Uhr${m ? ' ' + m : ''}`, timeAnswers(hr, m, false), 'Type the time, e.g. 14:30', 'numeric'), ...time };
+    return { ...listenQ(officialTime(hr, m), timeAnswers(hr, m, false), 'Type the time, e.g. 14:30', 'numeric'), ...time };
   })},
   // Exam-style Hören: a short announcement or phone message; 70% multiple choice (Teil 1/3), 30% Richtig/Falsch (Teil 2).
   listen: { title: 'Listen: announcements & messages', round: ten(() => {
-    const t = listeningTask(), rf = Math.random() < 0.3, claim = rf && t.options[rnd(3)];
+    const t = pick(POOL, 1)[0], rf = Math.random() < 0.3, claim = rf && t.options[rnd(3)];
     return { kind: 'choice', prompt: [bigSpeakBtn(t.text)], autoplay: t.text,
       hint: h('span', {}, rf ? `${t.stmt(claim)} Richtig oder falsch?` : t.question,
         h('small', { className: 'block text-[15px] mt-1' }, rf ? '(true or false?)' : t.en)),

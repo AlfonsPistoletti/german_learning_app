@@ -34,7 +34,11 @@ assert.equal(new Set(ids).size, ids.length, 'duplicate word: ' + ids.filter((x, 
 for (const w of DECKS.flatMap(d => d.words)) assert.ok(w.length === 4 && w[0] && w[1], 'bad entry ' + w);
 for (const v of VERBS) assert.equal(v.length, 8, 'bad verb ' + v[0]);
 // Typed answers
-const { checkAnswer, missingCap, variants, clockPhrase, timeAnswers, timeFormat, tokens } = await import('../src/answer.js');
+const { checkAnswer, missingCap, variants, clockPhrase, timeAnswers, timeFormat, tokens, ttsText } = await import('../src/answer.js');
+assert.equal(ttsText('Der Zug hält an Gleis 12.'), 'Der Zug hält an Gleis 12,');
+assert.equal(ttsText('Claudia ist 21. – Was?'), 'Claudia ist 21, – Was?');
+assert.equal(ttsText('Das Spiel beginnt um 15.30 Uhr.'), 'Das Spiel beginnt um 15.30 Uhr.');
+assert.equal(ttsText('(ein)hundert'), 'einhundert');
 assert.equal(missingCap('der apfel', ['der Apfel']), 'Apfel');
 assert.equal(missingCap('der Apfel', ['der Apfel']), undefined);
 assert.equal(missingCap('aepfel', ['Äpfel']), 'Äpfel'); // also on a close match
@@ -84,6 +88,20 @@ for (const tpl of TEMPLATES) for (let k = 0; k < 300; k++) {
   assert.ok(t.text.includes(t.said), `${tpl.name}: "${t.said}" not spoken in: ${t.text}`);
   for (const o of t.options) assert.ok(t.stmt(o).length > 5, tpl.name);
 }
+// Audio clips: stable ids, deterministic listening pool, every spoken text listed
+const { clipId } = await import('../src/answer.js');
+const { makePool, POOL } = await import('../src/data/hoeren.js');
+const { allSpokenTexts, verbSay, officialTime } = await import('../src/spoken.js');
+assert.equal(clipId('der Apfel'), clipId('der Apfel'));
+assert.notEqual(clipId('der Apfel'), clipId('die Birne'));
+assert.equal(clipId('an Gleis 12.'), clipId('an Gleis 12,')); // same spoken text -> same clip
+assert.deepEqual(makePool(50, 1).map(t => t.text), makePool(50, 1).map(t => t.text));
+assert.notDeepEqual(makePool(50, 1).map(t => t.text), makePool(50, 2).map(t => t.text));
+const spoken = new Set(allSpokenTexts());
+for (const t of [POOL[0].text, 'der Apfel', verbSay(2, 'ist'), officialTime(14, 15), 'Viertel nach zwei', '42']) assert.ok(spoken.has(t), 'not in spoken list: ' + t);
+assert.equal(verbSay(2, 'ist'), 'er ist');
+assert.ok([...spoken].every(t => t.trim()));
+
 if (process.argv.includes('--samples')) for (const tpl of TEMPLATES) { const t = tpl(); console.log(`\n[${tpl.name}] ${t.text}\n  ${t.question} -> ${t.answer}  (${t.options.join(' / ')})\n  R/F: ${t.stmt(t.options[0])}`); }
 
 console.log(`ok: srs, answers, ${TEMPLATES.length} listening templates, ${ids.length} words, ${VERBS.length} verbs, ${FORMS.length} forms, ${SPEAK.length} speaking cards`);

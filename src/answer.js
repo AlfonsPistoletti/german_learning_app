@@ -49,3 +49,17 @@ export function timeFormat(s) {
 }
 
 export const tokens = s => s.trim().split(/\s+/);
+
+// TTS reads "12." as an ordinal ("zwölften"). In spoken texts a number + period is always a sentence end,
+// so swap the period for a comma: cardinal number, still a short pause. "15.30 Uhr" (digit follows) is untouched.
+// shortcut: would also break real ordinals like "am 3. Mai"; none are spoken today, write them out ("am dritten Mai") if added.
+export const ttsText = s => s.replace(/[()]/g, '').replace(/(\d)\.(?=\s|$)/g, '$1,');
+
+// Pre-generated neural voice clips (tools/make-audio.mjs). Changing VOICE or RATE changes every id -> re-run `npm run audio`.
+export const VOICE = 'de-DE-ChristophNeural', RATE = '-10%';
+// File name of a text's clip: FNV-1a hash of voice + rate + spoken text, base36.
+export function clipId(text) {
+  let h = 0x811c9dc5;
+  for (const ch of `${VOICE}|${RATE}|${ttsText(text)}`) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(36);
+}

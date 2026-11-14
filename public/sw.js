@@ -20,11 +20,34 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  if (/\/audio\/[^/]+\.mp3$/.test(url.pathname)) return e.respondWith(audioClip(e.request));
   e.respondWith(fetch(e.request)
     .then(res => {
-      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
+      if (res.status === 200) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
       return res;
     })
     .catch(() => caches.match(e.request, { ignoreSearch: true })));
 });
+
+// Audio clips never change (file name = hash of the text): cache-first, stored whole.
+// <audio> asks for byte ranges and the Cache API can't store 206 responses,
+// so cache the full file and cut the requested range out of it (Safari needs real 206 answers).
+async function audioClip(req) {
+  const cache = await caches.open(CACHE);
+  let res = await cache.match(req.url);
+  if (!res) {
+    res = await fetch(req.url); // no Range header -> full 200 response
+    if (res.status === 200) await cache.put(req.url, res.clone());
+  }
+  const range = req.headers.get('range');
+  if (!range || res.status !== 200) return res;
+  const buf = await res.arrayBuffer(), size = buf.byteLength;
+  const [, s, e] = /bytes=(\d*)-(\d*)/.exec(range) || [];
+  const start = s ? +s : e ? Math.max(0, size - e) : 0;             // "bytes=-500" = last 500 bytes
+  const end = s && e ? Math.min(+e, size - 1) : size - 1;
+  return new Response(buf.slice(start, end + 1), { status: 206, headers: {
+    'Content-Type': 'audio/mpeg', 'Accept-Ranges': 'bytes',
+    'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1) } });
+}
