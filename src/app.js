@@ -47,12 +47,18 @@ let deVoice;
 // Best German voice first: iOS/macOS marks quality in voiceURI (…premium… / …enhanced…), Edge in the name (Natural). Unmarked voices rank last (-1 >>> 0 = max uint).
 const voiceRank = v => ['premium', 'enhanced', 'natural'].findIndex(q => (v.voiceURI + ' ' + v.name).toLowerCase().includes(q)) >>> 0;
 const loadVoice = () => {
-  const de = speechSynthesis.getVoices().filter(v => v.lang.replace('_', '-').startsWith('de'));
+  // Siri voices are not usable from Safari: leaving the voice unset falls back to the system default
+  // (possibly a Siri voice) and plays nothing, so always pick an explicit non-Siri voice.
+  const de = speechSynthesis.getVoices().filter(v =>
+    v.lang.replace('_', '-').startsWith('de') && !/siri/i.test(v.voiceURI + ' ' + v.name));
   deVoice = de.sort((a, b) => voiceRank(a) - voiceRank(b) || b.lang.endsWith('DE') - a.lang.endsWith('DE'))[0];
 };
 if ('speechSynthesis' in window) { loadVoice(); speechSynthesis.onvoiceschanged = loadVoice; }
+// Safari 16.4+: play like media, so the iPhone's silent switch doesn't mute the audio.
+if (navigator.audioSession) navigator.audioSession.type = 'playback';
 function say(text) {
   if (!('speechSynthesis' in window)) return;
+  if (!deVoice) loadVoice(); // iOS may fill the voice list late and skip voiceschanged
   const u = new SpeechSynthesisUtterance(text.replace(/[()]/g, ''));
   u.lang = 'de-DE'; u.rate = 0.9; if (deVoice) u.voice = deVoice;
   speechSynthesis.cancel(); speechSynthesis.speak(u);
