@@ -158,8 +158,37 @@ async function flip(card, swap) {
   await card.animate([{ transform: 'perspective(800px) rotateY(0)' }, { transform: 'perspective(800px) rotateY(90deg)' }],
     { duration: 110, easing: 'ease-in' }).finished;
   swap();
-  card.animate([{ transform: 'perspective(800px) rotateY(-90deg)' }, { transform: 'perspective(800px) rotateY(0)' }],
-    { duration: 110, easing: 'ease-out' });
+  await card.animate([{ transform: 'perspective(800px) rotateY(-90deg)' }, { transform: 'perspective(800px) rotateY(0)' }],
+    { duration: 110, easing: 'ease-out' }).finished;
+}
+
+const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const streakLine = () => h('p', { className: 'text-muted mt-2' }, `🔥 ${S.streak.count} ${S.streak.count === 1 ? 'Tag' : 'Tage'} in Folge`);
+
+// Answer feedback on the card: a little bounce when right, a short shake when wrong.
+function pop(el, ok) {
+  if (calm()) return;
+  el.animate(ok ? [{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }]
+    : [0, -8, 8, -5, 5, 0].map(x => ({ transform: `translateX(${x}px)` })), { duration: ok ? 220 : 300, easing: 'ease-out' });
+}
+
+// Confetti burst from the top centre; the layer ignores taps and removes itself.
+function confetti() {
+  if (calm()) return;
+  const layer = h('div', { className: 'fixed inset-0 pointer-events-none overflow-hidden z-50', ariaHidden: 'true' });
+  const colors = ['accent', 'good', 'easy', 'hard', 'die'];
+  const bits = Array.from({ length: 30 }, (_, i) => {
+    const s = h('span', { className: 'absolute top-[20%] left-1/2 w-2 h-3 rounded-sm' });
+    s.style.background = `var(--color-${colors[i % colors.length]})`;
+    layer.append(s);
+    const dx = (Math.random() - 0.5) * 360, up = 80 + Math.random() * 120, rot = (Math.random() - 0.5) * 720;
+    return s.animate([{ transform: 'translate(0,0) rotate(0)', opacity: 1 },
+      { transform: `translate(${dx * 0.6}px,${-up}px) rotate(${rot / 2}deg)`, opacity: 1, offset: 0.3 },
+      { transform: `translate(${dx}px,${up * 2}px) rotate(${rot}deg)`, opacity: 0 }],
+      { duration: 1000 + Math.random() * 400, easing: 'cubic-bezier(.2,.6,.4,1)' }).finished;
+  });
+  document.body.append(layer);
+  Promise.all(bits).finally(() => layer.remove());
 }
 
 // ---------- flashcards ----------
@@ -183,13 +212,16 @@ function counts() {
   return { due, news: Math.max(0, NEW_PER_DAY - S.day.news) };
 }
 
-function renderCards() {
+let session = 0; // cards rated since the app opened (in memory only)
+
+function renderCards(justRated) {
   touchDay();
   const root = $('#cards'); fill(root);
   const c = nextCard();
   const { due, news } = counts();
   root.append(h('p', { className: MUTED }, `Due ${due} · New ${news}`));
   if (!c) {
+    if (justRated === true) confetti(); // only right after the last card, not on every visit
     const upcoming = Object.values(S.cards).map(s => s.due).sort((a, b) => a - b)[0];
     root.append(h('div', { className: CARD },
       h('p', { className: BIG }, '🎉 Fertig für heute!'),
@@ -237,7 +269,7 @@ function renderCards() {
         h('p', { className: FRONT }, word(c.de), speakBtn(c.de)), extras());
       grades.hidden = false;
       if (v === 'wrong') grades.firstChild.classList.add('ring-4', 'ring-again/40');
-    });
+    }).then(() => pop(card, v !== 'wrong'));
   };
   const field = answerInput(check);
   const form = h('div', {}, field.nodes, h('button', { className: PRIMARY, textContent: 'Check', onclick: check }));
@@ -247,7 +279,13 @@ function renderCards() {
 function rate(c, g) {
   if (!S.cards[c.id] && !c.rev) S.day.news++;
   S.cards[c.id] = review(S.cards[c.id], g);
-  bumpStreak(); save(); renderCards();
+  bumpStreak(); save();
+  if (++session % 10) return renderCards(true);
+  confetti();
+  fill($('#cards'), h('div', { className: CARD },
+    h('p', { className: BIG }, `🎉 ${session} Karten geschafft!`),
+    h('p', {}, 'Super gemacht!'), streakLine()),
+    h('button', { className: PRIMARY, textContent: 'Weiter', onclick: () => renderCards() }));
 }
 
 // ---------- exercises ----------
@@ -381,17 +419,25 @@ function runExercise(key, qs, i = 0, score = 0) {
   if (!qs) { if (ex.needsSetup?.()) return ex.setup(); qs = ex.round(); }
   if (i === qs.length) {
     bumpStreak(); save();
+    const good = score >= qs.length * 0.8;
+    if (good) confetti();
     fill(root, exerciseHeader(ex.title),
       h('div', { className: CARD },
         h('p', { className: BIG }, `${score} / ${qs.length}`),
-        h('p', {}, score >= qs.length * 0.8 ? 'Sehr gut! 💪' : 'Weiter üben! 🙂')),
+        h('p', {}, score === qs.length ? 'Perfekt! 🌟' : good ? 'Sehr gut! 💪' : 'Weiter üben! 🙂'),
+        streakLine()),
       h('button', { className: PRIMARY, textContent: 'Again', onclick: () => runExercise(key) }));
     return;
   }
   const q = qs[i];
   const next = h('button', { className: PRIMARY, textContent: 'Next', hidden: true, onclick: () => runExercise(key, qs, i + 1, score) });
   const revealEl = q.reveal && h('div', { hidden: true }, q.reveal);
+  const card = h('div', { className: `${CARD} ${q.context ? '' : 'min-h-55'}` },
+    q.prompt && h('p', { className: q.promptClass || FRONT }, q.prompt),
+    q.hint && h('p', { className: 'text-[20px] text-muted my-2' }, q.hint),
+    revealEl);
   const done = ok => {
+    pop(card, ok);
     if (revealEl) revealEl.hidden = false;
     say(q.speak);
     next.onclick = () => runExercise(key, qs, i + 1, score + ok);
@@ -400,10 +446,7 @@ function runExercise(key, qs, i = 0, score = 0) {
   fill(root,
     exerciseHeader(`${ex.title} · ${i + 1}/${qs.length}`),
     q.context,
-    h('div', { className: `${CARD} ${q.context ? '' : 'min-h-55'}` },
-      q.prompt && h('p', { className: q.promptClass || FRONT }, q.prompt),
-      q.hint && h('p', { className: 'text-[20px] text-muted my-2' }, q.hint),
-      revealEl),
+    card,
     ...KINDS[q.kind](q, done, ok => runExercise(key, qs, i + 1, score + ok), revealEl),
     next);
   say(q.autoplay); // runs inside the tap that opened this question, as iOS requires
